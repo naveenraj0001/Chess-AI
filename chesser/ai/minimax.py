@@ -12,9 +12,12 @@ class MinimaxAI:
 
     def best_move(self, board: chess.Board) -> chess.Move | None:
         board = board.copy(stack=False)
-
         maximizing = board.turn == chess.WHITE
-        best_score = -math.inf if maximizing else math.inf
+
+        if maximizing == True:
+            best_score = -math.inf
+        else:
+            best_score = math.inf
         best_moves: list[chess.Move] = []
 
         for move in list(board.legal_moves):
@@ -24,29 +27,45 @@ class MinimaxAI:
 
             if score == best_score:
                 best_moves.append(move)
-            elif (maximizing and score > best_score) or (
-                not maximizing and score < best_score
-            ):
-                best_score = score
-                best_moves = [move]
 
-        return random.choice(best_moves) if best_moves else None
+            elif maximizing == True:
+                if score > best_score:
+                    best_score = score
+                    best_moves = [move]
+
+            else:
+                if score < best_score:
+                    best_score = score
+                    best_moves = [move]
+
+        if best_moves:
+            return random.choice(best_moves)
+        else:
+            return None
 
     def _minimax(self, board: chess.Board, depth: int, maximizing: bool) -> float:
         if depth == 0 or board.is_game_over():
             return evaluate(board, depth)
 
-        if maximizing:
+        if maximizing == True:
             best = -math.inf
+
             for move in list(board.legal_moves):
                 board.push(move)
-                best = max(best, self._minimax(board, depth - 1, False))
+                value = self._minimax(board, depth - 1, False)
                 board.pop()
-            return best
 
-        best = math.inf
-        for move in list(board.legal_moves):
-            board.push(move)
-            best = min(best, self._minimax(board, depth - 1, True))
-            board.pop()
-        return best
+                best = max(best, value)
+
+            return best
+        else:
+            best = math.inf
+
+            for move in list(board.legal_moves):
+                board.push(move)
+                value = self._minimax(board, depth - 1, True)
+                board.pop()
+
+                best = min(best, value)
+
+            return best

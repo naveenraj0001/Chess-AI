@@ -28,6 +28,7 @@ class BoardGrid(GridLayout):
         self._board = Board()
         self._ai = MinimaxAI(depth=3)
         self._selected = None
+        self._last_ai_move = None
         self._busy = False
         self._buttons: dict[int, Button] = {}
 
@@ -67,6 +68,9 @@ class BoardGrid(GridLayout):
                 btr.background_color = self.SELECTED_COLOR
             elif square in targets:
                 btr.background_color = self.TARGET_COLOR
+            elif self._last_ai_move and square == self._last_ai_move.to_square:
+                btr.background_color = self.TARGET_COLOR
+                self._last_ai_move = None
             else:
                 btr.background_color = self._cell_color(square)
 
@@ -132,6 +136,7 @@ class BoardGrid(GridLayout):
     def _apply_ai_move(self, move: chess.Move | None):
         if move is not None:
             self._board.push(move)
+            self._last_ai_move = move
         self._busy = False
         self._refresh()
 
