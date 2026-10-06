@@ -7,9 +7,27 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
-
+from kivy.uix.image import Image
+from kivy.uix.relativelayout import RelativeLayout
 from chesser.ai import MinimaxAI
 from chesser.state.board import Board
+
+
+PIECE_IMAGES = {
+    "P": "chesser/assets/white-pawn.png",
+    "R": "chesser/assets/white-rook.png",
+    "N": "chesser/assets/white-knight.png",
+    "B": "chesser/assets/white-bishop.png",
+    "Q": "chesser/assets/white-queen.png",
+    "K": "chesser/assets/white-king.png",
+
+    "p": "chesser/assets/black-pawn.png",
+    "r": "chesser/assets/black-rook.png",
+    "n": "chesser/assets/black-knight.png",
+    "b": "chesser/assets/black-bishop.png",
+    "q": "chesser/assets/black-queen.png",
+    "k": "chesser/assets/black-king.png",
+}
 
 
 class BoardGrid(GridLayout):
@@ -17,13 +35,12 @@ class BoardGrid(GridLayout):
     DARK_COLOR = (0.35, 0.35, 0.35, 1.0)
     SELECTED_COLOR = (0.0, 0.8, 0.0, 1.0)
     TARGET_COLOR = (0.8, 0.8, 0.0, 1.0)
-    CHECKMATE_COLOR = (1.0, 0.0, 0.0, 1.0)
-    WHITE_PIECE_COLOR = (1.0, 1.0, 1.0, 1.0)
-    BLACK_PIECE_COLOR = (0.0, 0.0, 0.0, 1.0)
+    CHECK_COLOR = (1.0, 0.0, 0.0, 1.0)
 
     def __init__(self, status: Label, **kwargs):
         super().__init__(**kwargs)
         self.cols = 8
+        self.rows = 8
 
         self._status = status
         self._board = Board()
@@ -32,6 +49,7 @@ class BoardGrid(GridLayout):
         self._last_ai_move = None
         self._busy = False
         self._buttons: dict[int, Button] = {}
+        self._images: dict[int, Image] = {}
 
         self._build_board()
         self._refresh()
@@ -40,10 +58,32 @@ class BoardGrid(GridLayout):
         for i in range(8):
             for j in range(8):
                 square = chess.square(j, 7 - i)
-                btr = Button(background_normal="", font_size="28sp", bold=True)
-                btr.bind(on_press=lambda b, s=square: self._on_press(s))  # pyright: ignore
+
+                # Each cell: a colored button (the square) with the piece image on top.
+                cell = RelativeLayout()
+
+                btr = Button(
+                    background_normal="",
+                    background_down="",
+                    background_color=self._cell_color(square),
+                )
+                btr.bind(on_press=lambda b, s=square: self._on_press(s))
+
+                img = Image(
+                    source="",
+                    fit_mode="contain",  # for Kivy < 2.2 use: allow_stretch=True, keep_ratio=True
+                    size_hint=(0.85, 0.85),
+                    pos_hint={"center_x": 0.5, "center_y": 0.5},
+                    opacity=0,
+                    disabled=True,
+                )
+
+                cell.add_widget(btr)
+                cell.add_widget(img)
+
                 self._buttons[square] = btr
-                self.add_widget(btr)
+                self._images[square] = img
+                self.add_widget(cell)
 
     def _cell_color(self, square: int):
         if (chess.square_file(square) + chess.square_rank(square)) % 2 == 0:
@@ -59,13 +99,16 @@ class BoardGrid(GridLayout):
 
         for square, btr in self._buttons.items():
             piece = self._board.piece_at(square)
-            btr.text = piece.symbol() if piece else ""
+            img = self._images[square]
+
             if piece:
-                btr.color = (
-                    self.WHITE_PIECE_COLOR
-                    if piece.color == chess.WHITE
-                    else self.BLACK_PIECE_COLOR
-                )
+                img.source = PIECE_IMAGES[piece.symbol()]
+                img.opacity = 1
+                img.disabled = False
+            else:
+                img.source = ""
+                img.opacity = 0   # hide the widget so no white box is drawn
+                img.disabled = True
 
             if square == self._selected:
                 btr.background_color = self.SELECTED_COLOR
@@ -75,12 +118,11 @@ class BoardGrid(GridLayout):
                 and self._board.is_check()
                 and self._board.turn == piece.color
             ):
-                btr.background_color = self.CHECKMATE_COLOR
+                btr.background_color = self.CHECK_COLOR
             elif square in targets:
                 btr.background_color = self.TARGET_COLOR
             elif self._last_ai_move and square == self._last_ai_move.to_square:
                 btr.background_color = self.TARGET_COLOR
-                self._last_ai_move = None
             else:
                 btr.background_color = self._cell_color(square)
 
@@ -130,6 +172,7 @@ class BoardGrid(GridLayout):
 
         self._board.push(move)
         self._selected = None
+        self._last_ai_move = None  # clear the old AI highlight once the player moves
 
         if self._board.is_game_over():
             self._refresh()
