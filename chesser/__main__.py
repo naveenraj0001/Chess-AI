@@ -30,6 +30,19 @@ PIECE_IMAGES = {
 }
 
 
+class ClickThroughImage(Image):
+    """Image that never consumes touches, so the button underneath gets them."""
+
+    def on_touch_down(self, touch):
+        return False
+
+    def on_touch_move(self, touch):
+        return False
+
+    def on_touch_up(self, touch):
+        return False
+
+
 class BoardGrid(GridLayout):
     LIGHT_COLOR = (0.65, 0.65, 0.65, 1.0)
     DARK_COLOR = (0.35, 0.35, 0.35, 1.0)
@@ -69,13 +82,12 @@ class BoardGrid(GridLayout):
                 )
                 btr.bind(on_press=lambda b, s=square: self._on_press(s))
 
-                img = Image(
+                img = ClickThroughImage(
                     source="",
                     fit_mode="contain",  # for Kivy < 2.2 use: allow_stretch=True, keep_ratio=True
                     size_hint=(0.85, 0.85),
                     pos_hint={"center_x": 0.5, "center_y": 0.5},
                     opacity=0,
-                    disabled=True,
                 )
 
                 cell.add_widget(btr)
@@ -104,11 +116,9 @@ class BoardGrid(GridLayout):
             if piece:
                 img.source = PIECE_IMAGES[piece.symbol()]
                 img.opacity = 1
-                img.disabled = False
             else:
                 img.source = ""
                 img.opacity = 0   # hide the widget so no white box is drawn
-                img.disabled = True
 
             if square == self._selected:
                 btr.background_color = self.SELECTED_COLOR
