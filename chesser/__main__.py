@@ -17,6 +17,7 @@ class BoardGrid(GridLayout):
     DARK_COLOR = (0.35, 0.35, 0.35, 1.0)
     SELECTED_COLOR = (0.0, 0.8, 0.0, 1.0)
     TARGET_COLOR = (0.8, 0.8, 0.0, 1.0)
+    CHECKMATE_COLOR = (1.0, 0.0, 0.0, 1.0)
     WHITE_PIECE_COLOR = (1.0, 1.0, 1.0, 1.0)
     BLACK_PIECE_COLOR = (0.0, 0.0, 0.0, 1.0)
 
@@ -52,7 +53,9 @@ class BoardGrid(GridLayout):
     def _refresh(self):
         targets = set()
         if self._selected is not None:
-            targets = {m.to_square for m in self._board.legal_moves_from(self._selected)}
+            targets = {
+                m.to_square for m in self._board.legal_moves_from(self._selected)
+            }
 
         for square, btr in self._buttons.items():
             piece = self._board.piece_at(square)
@@ -66,6 +69,13 @@ class BoardGrid(GridLayout):
 
             if square == self._selected:
                 btr.background_color = self.SELECTED_COLOR
+            elif (
+                piece
+                and piece.piece_type == chess.KING
+                and self._board.is_check()
+                and self._board.turn == piece.color
+            ):
+                btr.background_color = self.CHECKMATE_COLOR
             elif square in targets:
                 btr.background_color = self.TARGET_COLOR
             elif self._last_ai_move and square == self._last_ai_move.to_square:
