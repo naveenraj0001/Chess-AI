@@ -2,7 +2,6 @@ import math
 import re
 import sys
 import threading
-import readline
 
 import chess
 
@@ -302,6 +301,7 @@ def run_gui():
     from kivy.app import App
     from kivy.clock import Clock
     from kivy.metrics import dp
+    from kivy.resources import resource_find
     from kivy.uix.boxlayout import BoxLayout
     from kivy.uix.button import Button
     from kivy.uix.gridlayout import GridLayout
@@ -310,6 +310,8 @@ def run_gui():
     from kivy.uix.relativelayout import RelativeLayout
     from kivy.uix.scrollview import ScrollView
     from kivy.uix.splitter import Splitter
+
+    mono_font = resource_find("data/fonts/RobotoMono-Regular.ttf")
 
     class ClickThroughImage(Image):
         def on_touch_down(self, touch):
@@ -322,10 +324,11 @@ def run_gui():
             return False
 
     class Section(BoxLayout):
-        def __init__(self, title: str, **kwargs):
+        def __init__(self, title: str, monospace: bool = False, **kwargs):
             super().__init__(
                 orientation="vertical", size_hint_y=None, spacing=2, **kwargs
             )
+            value_font = {"font_name": mono_font} if monospace and mono_font else {}
             self._title = Label(
                 text=title,
                 bold=True,
@@ -341,6 +344,7 @@ def run_gui():
                 size_hint_y=None,
                 halign="left",
                 valign="top",
+                **value_font,
             )
             for lbl in (self._title, self._value):
                 lbl.bind(width=lambda l, w: setattr(l, "text_size", (w, None)))
@@ -367,7 +371,7 @@ def run_gui():
             box.bind(minimum_height=box.setter("height"))
             self.add_widget(box)
 
-            self._position = Section("Current Board Position")
+            self._position = Section("Current Board Position", monospace=True)
             self._turn = Section("Side to Move")
             self._pieces = Section("Pieces")
             self._moves = Section("Possible Moves")
@@ -396,7 +400,7 @@ def run_gui():
             )
 
         def show_position(self, board: chess.Board):
-            self._position.set(board.fen())
+            self._position.set(render_board(board))
             self._turn.set(side_label(board))
             self._pieces.set(pieces_summary(board))
             self._moves.set(str(board.legal_moves.count()))
