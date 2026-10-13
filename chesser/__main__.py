@@ -1,4 +1,6 @@
+import argparse
 import math
+import os
 import re
 import sys
 import threading
@@ -114,6 +116,136 @@ def render_board(board: chess.Board) -> str:
     return "\n".join(rows)
 
 
+PIECE_CHARS = set("pnbrqkPNBRQK.")
+SIDE_WORDS = {"w": chess.WHITE, "white": chess.WHITE, "b": chess.BLACK, "black": chess.BLACK}
+
+
+def infer_castling_rights(board: chess.Board) -> int:
+    rights = chess.BB_EMPTY
+    for color, king_sq, rooks in (
+        (chess.WHITE, chess.E1, (chess.A1, chess.H1)),
+        (chess.BLACK, chess.E8, (chess.A8, chess.H8)),
+    ):
+        king = board.piece_at(king_sq)
+        if king is None or king.piece_type != chess.KING or king.color != color:
+            continue
+        for rook_sq in rooks:
+            rook = board.piece_at(rook_sq)
+            if rook is not None and rook.piece_type == chess.ROOK and rook.color == color:
+                rights |= chess.BB_SQUARES[rook_sq]
+    return rights
+
+
+def expand_row(text: str) -> str:
+    squares = []
+    for ch in text:
+        if ch in "12345678":
+            squares.append("." * int(ch))
+        elif ch in PIECE_CHARS:
+            squares.append(ch)
+        else:
+            raise ValueError(ch)
+    return "".join(squares)
+
+
+def parse_row(line: str, rank: int) -> str | None:
+    compact = "".join(line.split())
+    if compact.lower() == "abcdefgh":
+        return None
+
+    candidates = [compact]
+    tokens = line.split()
+    if len(tokens) > 1 and tokens[0] in tuple("12345678"):
+        candidates.append("".join(tokens[1:]))
+
+    for candidate in candidates:
+        try:
+            squares = expand_row(candidate)
+        except ValueError:
+            continue
+        if len(squares) == 8:
+            return squares
+
+    raise ValueError(
+        f"Rank {rank} is not a valid row: {line!r}. It needs exactly 8 squares "
+        "using pnbrqkPNBRQK and '.' for empty (e.g. ....k...)."
+    )
+
+
+def build_board(rows: list[str], turn: bool) -> chess.Board:
+    board = chess.Board(None)
+    for index, row in enumerate(rows):
+        rank = 7 - index
+        for file, ch in enumerate(row):
+            if ch != ".":
+                board.set_piece_at(chess.square(file, rank), chess.Piece.from_symbol(ch))
+    board.turn = turn
+    board.castling_rights = infer_castling_rights(board)
+
+    if not board.is_valid():
+        problems = [
+            flag.name.lower().replace("_", " ")
+            for flag in board.status()
+            if flag != chess.STATUS_VALID
+        ]
+        raise ValueError("Illegal position: " + ", ".join(problems) + ".")
+    return board
+
+
+def read_board_from_stdin() -> chess.Board:
+    interactive = sys.stdin.isatty()
+    if interactive:
+        print(
+            "Board input (8 rows, rank 8 first, '.' for empty, "
+            "UPPERCASE = White, lowercase = Black):",
+            file=sys.stderr,
+        )
+
+    rows: list[str] = []
+    while len(rows) < 8:
+        line = sys.stdin.readline()
+        if not line:
+            raise ValueError(f"Expected 8 board rows, found {len(rows)}.")
+        if not line.strip():
+            continue
+        row = parse_row(line.strip(), 8 - len(rows))
+        if row is not None:
+            rows.append(row)
+
+    if interactive:
+        print("Enter whose turn (White/Black, Enter = White): ", end="", file=sys.stderr, flush=True)
+        answer = sys.stdin.readline().strip().lower()
+    else:
+        answer = ""
+        while True:
+            line = sys.stdin.readline()
+            if not line:
+                break
+            if not line.strip() or "".join(line.split()).lower() == "abcdefgh":
+                continue
+            answer = line.strip().lower()
+            break
+
+    if ":" in answer:
+        answer = answer.rsplit(":", 1)[1].strip()
+    words = answer.split()
+    if not words:
+        turn = chess.WHITE
+    elif words[0] in SIDE_WORDS:
+        turn = SIDE_WORDS[words[0]]
+    else:
+        raise ValueError(f"Turn must be White or Black, got {answer!r}.")
+
+    return build_board(rows, turn)
+
+
+def new_game(initial: chess.Board | None = None) -> Board:
+    board = Board()
+    if initial is not None:
+        board.raw.set_fen(initial.fen())
+    return board
+
+
 def parse_player_move(board: chess.Board, text: str):
     cleaned = text.strip().lower()
     for token in ("->", "-", ","):
@@ -226,8 +358,8 @@ def print_help():
     print("  quit               leave the game")
 
 
-def run_terminal():
-    board = Board()
+def run_terminal(initial: chess.Board | None = None):
+    board = new_game(initial)
     ai = MinimaxAI(depth=AI_DEPTH)
     analyzer = MinimaxAI(depth=ANALYSIS_DEPTH)
 
@@ -235,10 +367,20 @@ def run_terminal():
 
     while True:
         raw = board.raw
+        over = game_status(raw)
+
+        if not over and raw.turn == chess.BLACK:
+            print("\nAI is thinking...")
+            ai_move = ai.best_move(raw.copy()).best_move
+            if ai_move is None:
+                return
+            print(f"AI played: {format_move(raw, ai_move)}")
+            board.push(ai_move)
+            continue
+
         print()
         print(render_board(raw))
 
-        over = game_status(raw)
         if over:
             print_analytics(raw, None, "Game over")
             print()
@@ -278,26 +420,10 @@ def run_terminal():
         print(f"You played: {format_move(board.raw, move)}")
         board.push(move)
 
-        over = game_status(board.raw)
-        if over:
-            print()
-            print(render_board(board.raw))
-            print()
-            print(over)
-            return
 
-        print("\nAI is thinking...")
-        ai_move = ai.best_move(board.raw.copy()).best_move
-        if ai_move is None:
-            print()
-            print(render_board(board.raw))
-            print(game_status(board.raw) or "Draw")
-            return
-        print(f"AI played: {format_move(board.raw, ai_move)}")
-        board.push(ai_move)
+def run_gui(initial: chess.Board | None = None):
+    os.environ["KIVY_NO_ARGS"] = "1"
 
-
-def run_gui():
     from kivy.app import App
     from kivy.clock import Clock
     from kivy.metrics import dp
@@ -436,14 +562,20 @@ def run_gui():
         TARGET_COLOR = (0.8, 0.8, 0.0, 1.0)
         CHECK_COLOR = (1.0, 0.0, 0.0, 1.0)
 
-        def __init__(self, status: Label, panel: AnalyticsPanel, **kwargs):
+        def __init__(
+            self,
+            status: Label,
+            panel: AnalyticsPanel,
+            initial: chess.Board | None = None,
+            **kwargs,
+        ):
             super().__init__(**kwargs)
             self.cols = 8
             self.rows = 8
 
             self._status = status
             self._panel = panel
-            self._board = Board()
+            self._board = new_game(initial)
             self._ai = MinimaxAI(depth=AI_DEPTH)
             self._analyzer = MinimaxAI(depth=ANALYSIS_DEPTH)
             self._analysis_id = 0
@@ -455,7 +587,17 @@ def run_gui():
 
             self._build_board()
             self._refresh()
-            self._request_analysis()
+            if self._board.turn == chess.BLACK and not self._board.is_game_over():
+                self._panel.show_position(self._board.raw.copy())
+                self._start_ai()
+            else:
+                self._request_analysis()
+
+        def _start_ai(self):
+            self._busy = True
+            self._panel.show_waiting()
+            self._refresh()
+            threading.Thread(target=self._think, daemon=True).start()
 
         def _build_board(self):
             for i in range(8):
@@ -605,10 +747,7 @@ def run_gui():
                 self._request_analysis()
                 return
 
-            self._busy = True
-            self._panel.show_waiting()
-            self._refresh()
-            threading.Thread(target=self._think, daemon=True).start()
+            self._start_ai()
 
         def _think(self):
             move = self._ai.best_move(self._board.raw).best_move
@@ -630,7 +769,7 @@ def run_gui():
             status = Label(size_hint_y=0.08)
             panel = AnalyticsPanel()
             left.add_widget(status)
-            left.add_widget(BoardGrid(status, panel))
+            left.add_widget(BoardGrid(status, panel, initial))
 
             splitter = Splitter(
                 sizable_from="left",
@@ -648,11 +787,45 @@ def run_gui():
     ChesserApp().run()
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="chesser",
+        description="Chesser: play White against a minimax AI, in a GUI or in the terminal.",
+    )
+    parser.add_argument(
+        "mode",
+        nargs="?",
+        default="gui",
+        choices=["gui", "term"],
+        help="'term' plays in the terminal; the default 'gui' opens the window",
+    )
+    parser.add_argument(
+        "-i",
+        "--stdin",
+        action="store_true",
+        help=(
+            "read the starting board from stdin: 8 rows (rank 8 first, '.' for "
+            "empty squares), then the side to move (White or Black; empty = White)"
+        ),
+    )
+    return parser
+
+
 def main():
-    if len(sys.argv) > 1 and sys.argv[1].lower() == "term":
-        run_terminal()
+    parser = build_parser()
+    args = parser.parse_args()
+
+    initial = None
+    if args.stdin:
+        try:
+            initial = read_board_from_stdin()
+        except ValueError as error:
+            parser.error(str(error))
+
+    if args.mode == "term":
+        run_terminal(initial)
     else:
-        run_gui()
+        run_gui(initial)
 
 
 if __name__ == "__main__":
